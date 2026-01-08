@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 
 from config import settings
@@ -52,6 +53,12 @@ app = FastAPI(
 )
 
 
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/health/", methods=["GET", "HEAD"])
+async def health() -> Response:
+    return JSONResponse({"status": "ok"})
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str = "") -> Response:
     """代理请求到 Vertex AI API
@@ -63,6 +70,10 @@ async def proxy(request: Request, path: str = "") -> Response:
     Returns:
         代理响应
     """
+    # 由于 catch-all 路由会吞掉重定向逻辑，这里显式短路 /health 与 /health/
+    if path.rstrip("/") == "health":
+        return JSONResponse({"status": "ok"})
+
     # 构建目标 URL
     target_url = f"{settings.target_base_url}/{path}"
     if request.query_params:
