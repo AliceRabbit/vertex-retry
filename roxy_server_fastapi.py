@@ -13,7 +13,8 @@ from fastapi.responses import StreamingResponse
 from config import settings
 from logger import setup_logging
 from request_processor import RequestProcessor
-from retry_client import send_with_retry
+from retry_client import build_error_response, send_with_retry
+
 
 # 初始化日志系统
 setup_logging()
@@ -25,16 +26,26 @@ async def lifespan(app: FastAPI):
     """管理应用生命周期和 HTTP 客户端连接池"""
     # 启动时创建 client
     timeout_config = httpx.Timeout(
+        settings.request_timeout,
         connect=settings.connect_timeout,
         read=settings.read_timeout,
-        write=30.0,
-        pool=10.0
+        write=settings.write_timeout,
+        pool=settings.pool_timeout
     )
     # 限制连接池大小，避免过多连接
-    limits = httpx.Limits(max_keepalive_connections=20, max_connections=40)
+    limits = httpx.Limits(
+        max_keepalive_connections=settings.max_keepalive_connections,
+        max_connections=settings.max_connections,
+        keepalive_expiry=settings.keepalive_expiry,
+    )
     
     logger.info("Initializing HTTP client with connection pooling...")
-    client = httpx.AsyncClient(timeout=timeout_config, limits=limits)
+    client = httpx.AsyncClient(
+        timeout=timeout_config,
+        limits=limits,
+        http2=settings.http2_enabled,
+        trust_env=True,
+    )
     app.state.http_client = client
     
     yield
@@ -70,7 +81,6 @@ async def proxy(request: Request, path: str = "") -> Response:
     Returns:
         代理响应
     """
-    # 由于 catch-all 路由会吞掉重定向逻辑，这里显式短路 /health 与 /health/
     if path.rstrip("/") == "health":
         return JSONResponse({"status": "ok"})
 
@@ -87,10 +97,6 @@ async def proxy(request: Request, path: str = "") -> Response:
     
     # 处理请求体
     request_data = await RequestProcessor.process_body(request, path)
-    
-    # 如果修改了请求体，或者原请求体为空但现在的逻辑需要特定的 Content-Length 处理
-    # 最好删除 Content-Length 让 httpx 重新计算，因为 process_body 会返回 bytes
-    # 注意：RequestProcessor.process_body 总是返回 bytes
     headers.pop("content-length", None)
     
     # 获取共享的 HTTP 客户端
@@ -108,10 +114,15 @@ async def proxy(request: Request, path: str = "") -> Response:
         )
     except Exception as e:
         logger.error(f"Unhandled exception in proxy: {e}", exc_info=True)
-        return Response(
-            content=f"Internal Server Error: {str(e)}",
-            status_code=500
+        return build_error_response(
+            error_type="internal_error",
+            message=f"Internal Server Error: {str(e)}",
+            code=500,
+            retryable=False,
+            attempts=0,
+            path=request.url.path,
         )
+
 
 
 if __name__ == '__main__':
@@ -121,7 +132,6 @@ if __name__ == '__main__':
         f"Starting proxy server on {settings.host}:{settings.port} -> {settings.target_base_url}"
     )
     
-    # 使用 uvicorn 运行，支持异步
     uvicorn.run(
         app,
         host=settings.host,

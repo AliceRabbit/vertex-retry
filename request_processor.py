@@ -42,51 +42,29 @@ def should_filter_thinking_config(path: str, json_data: Dict) -> bool:
     return False
 
 
-def _remove_key_recursive(obj: Any, key_to_remove: str) -> bool:
+def remove_key_recursive(obj: Any, key_to_remove: str) -> bool:
     """递归删除指定 key，返回是否有修改"""
     modified = False
     if isinstance(obj, dict):
         if key_to_remove in obj:
             del obj[key_to_remove]
             modified = True
-            
-        for key, value in obj.items():
+
+        for value in obj.values():
             if isinstance(value, (dict, list)):
-                if _remove_key_recursive(value, key_to_remove):
+                if remove_key_recursive(value, key_to_remove):
                     modified = True
     elif isinstance(obj, list):
         for item in obj:
             if isinstance(item, (dict, list)):
-                if _remove_key_recursive(item, key_to_remove):
+                if remove_key_recursive(item, key_to_remove):
                     modified = True
     return modified
 
 
 def filter_thinking_config(json_data: Dict) -> Tuple[Dict, bool]:
     """过滤掉 thinkingConfig 参数"""
-    modified = False
-    
-    # 1. 直接检查根级
-    if "thinkingConfig" in json_data:
-        del json_data["thinkingConfig"]
-        modified = True
-    
-    # 2. 检查常见嵌套位置 (generationConfig / generation_config)
-    # 之前的实现只检查了这两处，为了保险起见，我们可以保持原样，或者做深度清理
-    # 原逻辑比较明确，我们就保持原逻辑的针对性，不乱改深度
-    
-    # 检查 generationConfig (驼峰)
-    gen_config = json_data.get("generationConfig")
-    if isinstance(gen_config, dict) and "thinkingConfig" in gen_config:
-        del gen_config["thinkingConfig"]
-        modified = True
-        
-    # 检查 generation_config (下划线)
-    gen_config_snake = json_data.get("generation_config")
-    if isinstance(gen_config_snake, dict) and "thinkingConfig" in gen_config_snake:
-        del gen_config_snake["thinkingConfig"]
-        modified = True
-        
+    modified = remove_key_recursive(json_data, "thinkingConfig")
     return json_data, modified
 
 
@@ -101,6 +79,9 @@ class RequestProcessor:
         # 快速检查：如果不是 JSON 或为空，直接返回
         content_type = request.headers.get("content-type", "")
         if "application/json" not in content_type or not body:
+            return body
+
+        if b"thinkingConfig" not in body and b"[undefined]" not in body:
             return body
         
         try:
