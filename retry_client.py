@@ -16,37 +16,6 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-def build_error_payload(
-    error_type: str,
-    message: str,
-    code: int,
-    retryable: bool,
-    attempts: int,
-    path: Optional[str] = None,
-    upstream_status: Optional[int] = None,
-    retry_after: Optional[float] = None,
-    next_retry_in: Optional[float] = None,
-) -> dict:
-    payload = {
-        "error": {
-            "type": error_type,
-            "message": message,
-            "code": code,
-            "retryable": retryable,
-            "attempts": attempts,
-        }
-    }
-    if path is not None:
-        payload["error"]["path"] = path
-    if upstream_status is not None:
-        payload["error"]["upstream_status"] = upstream_status
-    if retry_after is not None:
-        payload["error"]["retry_after"] = retry_after
-    if next_retry_in is not None:
-        payload["error"]["next_retry_in"] = next_retry_in
-    return payload
-
-
 def build_error_response(
     error_type: str,
     message: str,
@@ -56,20 +25,22 @@ def build_error_response(
     path: Optional[str] = None,
     upstream_status: Optional[int] = None,
     retry_after: Optional[float] = None,
-    next_retry_in: Optional[float] = None,
 ) -> JSONResponse:
-    payload = build_error_payload(
-        error_type=error_type,
-        message=message,
-        code=code,
-        retryable=retryable,
-        attempts=attempts,
-        path=path,
-        upstream_status=upstream_status,
-        retry_after=retry_after,
-        next_retry_in=next_retry_in,
-    )
-    return JSONResponse(content=payload, status_code=code)
+    """构建统一的错误响应"""
+    error_data = {
+        "type": error_type,
+        "message": message,
+        "code": code,
+        "retryable": retryable,
+        "attempts": attempts,
+    }
+    if path is not None:
+        error_data["path"] = path
+    if upstream_status is not None:
+        error_data["upstream_status"] = upstream_status
+    if retry_after is not None:
+        error_data["retry_after"] = retry_after
+    return JSONResponse(content={"error": error_data}, status_code=code)
 
 
 def parse_retry_after_seconds(retry_after: Optional[str]) -> Optional[float]:
@@ -152,7 +123,6 @@ async def sleep_with_heartbeat(request: Optional[Request], delay: float) -> bool
 
 
 async def stream_response(
-
     response: httpx.Response,
     url: str,
     request: Optional[Request] = None,

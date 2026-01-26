@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse
 
 from config import settings
 from logger import setup_logging
@@ -138,4 +137,3 @@ if __name__ == '__main__':
         port=settings.port,
         log_level=settings.log_level.lower()
     )
-
